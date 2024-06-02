@@ -1,0 +1,82 @@
+from flask import Flask, request , jsonify
+import mysql.connector
+
+app = Flask(__name__)
+
+def conn_to_db():
+    cnx = mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="1234",
+        database="chatbot_data"
+    )
+    return cnx
+
+def extract_event_name(payload):
+    event_name = None
+    for rich_content in payload['queryResult']['fulfillmentMessages']:
+        if 'payload' in rich_content:
+            for content in rich_content['payload']['richContent']:
+                for item in content:
+                    if 'event' in item:
+                        event_name = item['event']['name']
+    return event_name
+
+def root(payload):
+    event_name = extract_event_name(payload)
+    
+
+def placement(param):
+    dept = (param['departments'])
+    stat = (param['Statistics'])
+    if stat == "":
+        stat ="AVG"
+    cnx = conn_to_db()
+    cursor = cnx.cursor()
+    query = "SELECT {}(package) FROM placement2023 WHERE Branch = %s".format(stat)
+    cursor.execute(query, (dept,))
+    result = cursor.fetchone()
+    cursor.close()
+    if result:
+        formatted_result = "{:.2f}".format(result[0])
+        fulfillment = f"The {stat} placement of {dept} Department is : {formatted_result}LPA"
+        return fulfillment
+    else:
+        return "Sorry! I can not process it at this time."
+
+@app.route('/', methods=["POST", "GET"])
+def webhook():
+    global prev_stat, prev_dept
+    if request.method == "GET":
+        return "Failed"
+    elif request.method == "POST":
+        payload = request.json
+        intent = (payload['queryResult']['intent']['displayName'])
+        param = (payload['queryResult']['parameters'])
+
+        if intent == "Admission.main.final":
+            x = root(payload)
+            fulfillment = "The answer is: {}".format(x)
+            return jsonify({"fulfillmentText": fulfillment})
+
+        elif intent == "placement_database":
+            x = placement(param)
+            return jsonify({"fulfillmentText": x})
+
+        elif intent == "placement_database - department":
+            department = param.get('departments', '')
+            x = placement({'departments': department, 'Statistics': prev_stat})
+            return jsonify({"fulfillmentText": x})
+
+        elif intent == "placement_database - statistics":
+            statistics = param.get('statistics', '')
+            x = placement({'departments': prev_dept, 'Statistics': statistics})
+            return jsonify({"fulfillmentText": x})
+
+        else:
+            print(request.data)
+            return "200"
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
